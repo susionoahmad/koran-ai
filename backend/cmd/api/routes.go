@@ -6,6 +6,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"koran-ai-backend/internal/health"
 	"koran-ai-backend/internal/shared/middleware"
+	"koran-ai-backend/internal/shared/validator"
+	"koran-ai-backend/internal/source/handler"
+	"koran-ai-backend/internal/source/repository"
+	"koran-ai-backend/internal/source/service"
 )
 
 // registerRoutes sets up all public and internal API routes.
@@ -20,5 +24,17 @@ func registerRoutes(app *fiber.App, db *pgxpool.Pool, rdb *redis.Client, interna
 
 	// Public API v1 group
 	v1 := app.Group("/api/v1")
-	_ = v1 // Future public routes will be registered here (Phase 8+)
+
+	// Source Module Setup
+	srcRepo := repository.NewPostgresRepository(db)
+	srcSvc := service.NewSourceService(srcRepo)
+	val := validator.NewValidator()
+	srcHandler := handler.NewHandler(srcSvc, val)
+
+	// Register Source Routes
+	v1.Post("/sources", srcHandler.Create)
+	v1.Get("/sources", srcHandler.List)
+	v1.Get("/sources/:id", srcHandler.GetByID)
+	v1.Put("/sources/:id", srcHandler.Update)
+	v1.Delete("/sources/:id", srcHandler.Delete)
 }
