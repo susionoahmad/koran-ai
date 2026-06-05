@@ -163,3 +163,32 @@ func (r *postgresRepository) Delete(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// ListActive returns all sources where is_active = true.
+func (r *postgresRepository) ListActive(ctx context.Context) ([]entity.Source, error) {
+	query := `
+		SELECT id, name, base_url, rss_url, source_type, is_active, created_at, updated_at
+		FROM sources
+		WHERE is_active = true
+		ORDER BY created_at ASC
+	`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active sources: %w", err)
+	}
+	defer rows.Close()
+
+	var sources []entity.Source
+	for rows.Next() {
+		var s entity.Source
+		if err := rows.Scan(&s.ID, &s.Name, &s.BaseURL, &s.RSSURL, &s.SourceType, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan source: %w", err)
+		}
+		sources = append(sources, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+	return sources, nil
+}
+

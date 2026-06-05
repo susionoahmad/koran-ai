@@ -18,6 +18,7 @@ type mockRepository struct {
 	UpdateFunc       func(ctx context.Context, s *entity.Source) error
 	DeleteFunc       func(ctx context.Context, id string) error
 	ListFunc         func(ctx context.Context, page, limit int) ([]entity.Source, int64, error)
+	ListActiveFunc   func(ctx context.Context) ([]entity.Source, error)
 }
 
 func (m *mockRepository) Create(ctx context.Context, s *entity.Source) error {
@@ -67,6 +68,13 @@ func (m *mockRepository) Delete(ctx context.Context, id string) error {
 		return m.DeleteFunc(ctx, id)
 	}
 	return nil
+}
+
+func (m *mockRepository) ListActive(ctx context.Context) ([]entity.Source, error) {
+	if m.ListActiveFunc != nil {
+		return m.ListActiveFunc(ctx)
+	}
+	return nil, nil
 }
 
 func TestCreate_Success(t *testing.T) {

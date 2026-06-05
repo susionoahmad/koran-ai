@@ -22,6 +22,8 @@ type Config struct {
 	RedisPassword  string `env:"REDIS_PASSWORD" env-default:""`
 	LogLevel       string `env:"LOG_LEVEL" env-default:"debug"`
 	InternalAPIKey string `env:"INTERNAL_API_KEY" env-default:"KoranAISecretKey2026!"`
+	GeminiAPIKey   string `env:"GEMINI_API_KEY" env-default:""`
+	GeminiModel    string `env:"GEMINI_MODEL" env-default:"gemini-2.5-flash"`
 }
 
 // Load loads the configuration from .env file or environment variables.

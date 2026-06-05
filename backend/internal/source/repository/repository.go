@@ -13,4 +13,6 @@ type Repository interface {
 	List(ctx context.Context, page, limit int) ([]entity.Source, int64, error)
 	Update(ctx context.Context, s *entity.Source) error
 	Delete(ctx context.Context, id string) error
+	// ListActive returns all sources with is_active=true (used by crawler).
+	ListActive(ctx context.Context) ([]entity.Source, error)
 }

@@ -1,19 +1,4 @@
 mode: set
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:40.65,42.2 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:44.90,52.16 4 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:52.16,54.3 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:55.2,55.16 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:58.151,66.16 4 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:66.16,68.3 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:69.2,69.12 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:72.116,77.16 4 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:77.16,78.36 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:78.36,80.4 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:80.9,82.4 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:83.8,85.3 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:88.2,90.16 3 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:90.16,92.3 1 0
-koran-ai-backend/internal/crawler/service/crawl_log_repository.go:94.2,94.37 1 0
 koran-ai-backend/internal/crawler/service/service.go:80.11,87.2 1 1
 koran-ai-backend/internal/crawler/service/service.go:90.96,95.16 3 1
 koran-ai-backend/internal/crawler/service/service.go:95.16,97.3 1 1
@@ -54,13 +39,13 @@ koran-ai-backend/internal/crawler/service/service.go:222.17,227.12 2 1
 koran-ai-backend/internal/crawler/service/service.go:229.3,229.33 1 1
 koran-ai-backend/internal/crawler/service/service.go:231.2,231.21 1 1
 koran-ai-backend/internal/crawler/service/service.go:235.79,237.16 2 1
-koran-ai-backend/internal/crawler/service/service.go:237.16,239.3 1 0
+koran-ai-backend/internal/crawler/service/service.go:237.16,239.3 1 1
 koran-ai-backend/internal/crawler/service/service.go:241.2,242.16 2 1
-koran-ai-backend/internal/crawler/service/service.go:242.16,244.3 1 0
+koran-ai-backend/internal/crawler/service/service.go:242.16,244.3 1 1
 koran-ai-backend/internal/crawler/service/service.go:246.2,247.16 2 1
-koran-ai-backend/internal/crawler/service/service.go:247.16,249.3 1 0
+koran-ai-backend/internal/crawler/service/service.go:247.16,249.3 1 1
 koran-ai-backend/internal/crawler/service/service.go:251.2,252.16 2 1
-koran-ai-backend/internal/crawler/service/service.go:252.16,254.3 1 0
+koran-ai-backend/internal/crawler/service/service.go:252.16,254.3 1 1
 koran-ai-backend/internal/crawler/service/service.go:256.2,257.22 2 1
 koran-ai-backend/internal/crawler/service/service.go:257.22,259.3 1 1
 koran-ai-backend/internal/crawler/service/service.go:261.2,267.8 1 1

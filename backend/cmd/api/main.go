@@ -74,7 +74,7 @@ func main() {
 	app.Use(middleware.Recovery(log))
 
 	// 7. Register all routes
-	registerRoutes(app, dbPool, redisClient, cfg.InternalAPIKey)
+	registerRoutes(app, dbPool, redisClient, log, cfg)
 
 	// 8. Handle Graceful Shutdown in a separate goroutine
 	shutdownChan := make(chan os.Signal, 1)
