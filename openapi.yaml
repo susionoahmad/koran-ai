@@ -1,0 +1,967 @@
+openapi: 3.1.0
+info:
+  title: Koran AI Indonesia API
+  description: Kontrak REST API production-ready untuk sistem agregator, kurasi, dan layout koran digital berbasis AI - Koran AI Indonesia.
+  version: 1.0.0
+servers:
+  - url: https://koranai.id
+    description: Production Server
+  - url: http://localhost:8080
+    description: Local Development Server
+
+security: []
+
+paths:
+  # ===========================================================================
+  # PUBLIC API
+  # ===========================================================================
+  /api/v1/home:
+    get:
+      summary: Feed Beranda
+      description: Mengambil data halaman depan beranda koran digital (headline, top stories, kategori, trending).
+      responses:
+        '200':
+          description: Data feed beranda berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Home feed retrieved
+                  data:
+                    type: object
+                    properties:
+                      latest_edition:
+                        $ref: '#/components/schemas/EditionBasic'
+                      headline:
+                        $ref: '#/components/schemas/ClusterBasic'
+                      top_stories:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ClusterBasic'
+                      trending_topics:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TrendingTopic'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/editions/latest:
+    get:
+      summary: Edisi Terbaru
+      description: Mengambil detail halaman depan edisi koran cetak digital terbaru yang telah dipublikasikan.
+      responses:
+        '200':
+          description: Edisi terbaru berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Latest edition retrieved
+                  data:
+                    $ref: '#/components/schemas/EditionFull'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/editions/{id}:
+    get:
+      summary: Detail Edisi
+      description: Mengambil data edisi tertentu berdasarkan UUID.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID Edisi
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Data edisi berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Edition details retrieved
+                  data:
+                    $ref: '#/components/schemas/EditionFull'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/editions:
+    get:
+      summary: Daftar Edisi
+      description: Mengambil daftar edisi terpaginasi.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PAGI, SIANG, MALAM]
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: '2026-06-05'
+      responses:
+        '200':
+          description: Daftar edisi terpaginasi berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EditionBasic'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/articles/{id}:
+    get:
+      summary: Detail Rangkuman Berita
+      description: Mengambil rangkuman berita ditulis ulang (AI) beserta tautan referensi media asli.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID Klaster Berita
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rincian artikel berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Article details retrieved
+                  data:
+                    $ref: '#/components/schemas/ArticleDetail'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/categories:
+    get:
+      summary: Daftar Kategori
+      description: Mengambil seluruh kategori master bawaan sistem.
+      responses:
+        '200':
+          description: Daftar kategori berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Categories retrieved
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/categories/{slug}:
+    get:
+      summary: Artikel Per Kategori
+      description: Mengambil daftar klaster berita terpaginasi dalam satu kategori berdasarkan slug kategori.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: ekonomi
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Klaster artikel dalam kategori berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ClusterBasic'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/trending:
+    get:
+      summary: Topik Hangat (Trending)
+      description: Mengambil daftar topik terpopuler saat ini berdasarkan frekuensi berita.
+      responses:
+        '200':
+          description: Topik trending berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Trending topics retrieved
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TrendingTopic'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/search:
+    get:
+      summary: Pencarian Berita (FTS)
+      description: Mengakses database PostgreSQL FTS untuk mencari teks headline & isi berita.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Kata kunci (minimal 3 karakter)
+          schema:
+            type: string
+            minLength: 3
+        - name: category
+          in: query
+          required: false
+          description: Filter slug kategori
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Hasil pencarian berhasil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchResult'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '422':
+          description: Validasi query gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/archive:
+    get:
+      summary: Kalender Arsip Koran
+      description: Menjelajahi kalender edisi koran harian terdahulu.
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar arsip edisi berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EditionBasic'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ===========================================================================
+  # INTERNAL API (Protected via Key)
+  # ===========================================================================
+  /internal/crawler/run:
+    post:
+      summary: Jalankan Crawler Spesifik
+      description: Memicu proses penjelajahan berita pada satu sumber ID khusus (Internal Localhost).
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - source_id
+              properties:
+                source_id:
+                  type: string
+                  format: uuid
+                  example: 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d'
+      responses:
+        '202':
+          description: Crawler berhasil dijadwalkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Crawler job scheduled successfully
+                  data:
+                    type: object
+                    properties:
+                      job_id:
+                        type: string
+                        format: uuid
+                        example: 'f8d38b02-5cde-4702-861f-13a8549e3940'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          description: Data body salah format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/crawler/run-all:
+    post:
+      summary: Jalankan Seluruh Crawler
+      description: Memicu crawling untuk seluruh sumber berita yang aktif.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '202':
+          description: Semua crawler berhasil dijadwalkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: All crawlers started
+                  data:
+                    type: object
+                    properties:
+                      job_id:
+                        type: string
+                        format: uuid
+                        example: 'c9b38b02-5cde-4702-861f-13a8549e3941'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/cluster/build:
+    post:
+      summary: Memicu Clustering AI
+      description: Memerintahkan pipeline AI melakukan vector similarity matching & pengelompokan topik.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Clustering selesai
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: AI clustering completed
+                  data:
+                    type: object
+                    properties:
+                      cluster_count:
+                        type: integer
+                        example: 14
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/summary/generate:
+    post:
+      summary: Hasilkan Rangkuman AI
+      description: Memicu Gemini API untuk membuat rangkuman, dampak, dan penulisan ulang objektif bagi klaster yang belum diproses.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Proses pembuatan rangkuman selesai
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: AI summaries generated successfully
+                  data:
+                    type: object
+                    properties:
+                      processed_count:
+                        type: integer
+                        example: 14
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/edition/build:
+    post:
+      summary: Buat Draft Edisi
+      description: Memulai penyusunan tata letak digital edisi koran baru (Pagi, Siang, atau Malam).
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - edition_type
+              properties:
+                edition_type:
+                  type: string
+                  enum: [PAGI, SIANG, MALAM]
+                  example: MALAM
+      responses:
+        '201':
+          description: Draft Edisi berhasil dibuat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Edition draft generated successfully
+                  data:
+                    type: object
+                    properties:
+                      edition_id:
+                        type: string
+                        format: uuid
+                        example: 'e4f8a123-5678-4a92-b430-bf824128f111'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: Bentrok karena edisi sejenis pada tanggal tersebut sudah ada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: Edition already exists for this date and type
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/edition/publish:
+    post:
+      summary: Publikasikan Edisi
+      description: Mengubah status draf edisi menjadi PUBLISHED sehingga dapat diakses publik.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - edition_id
+              properties:
+                edition_id:
+                  type: string
+                  format: uuid
+                  example: 'e4f8a123-5678-4a92-b430-bf824128f111'
+      responses:
+        '200':
+          description: Edisi berhasil dipublikasikan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Edition published successfully
+                  data:
+                    type: object
+                    properties:
+                      edition_id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: PUBLISHED
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /internal/trending/rebuild:
+    post:
+      summary: Rebuild Indeks Trending
+      description: Menghitung ulang topik berita paling populer berdasarkan data artikel terkini dan menyimpannya di Redis.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Kalkulasi ulang selesai
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Trending topics rebuilt
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+# ===========================================================================
+# COMPONENTS
+# ===========================================================================
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: Kunci API rahasia untuk otentikasi tugas internal.
+
+  responses:
+    BadRequestError:
+      description: Request parameter tidak valid / salah format
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: Invalid UUID format
+    UnauthorizedError:
+      description: API Key salah atau tidak dikirim
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: Unauthorized - Invalid API Key
+    NotFoundError:
+      description: Data yang dicari tidak ditemukan
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: Resource not found
+    ValidationError:
+      description: Payload body melanggar validasi tipe data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+    ServerError:
+      description: Kegagalan internal database atau model AI
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: Internal server error happened
+
+  schemas:
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 100
+        total_pages:
+          type: integer
+          example: 5
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Validation failed
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            q: query parameter 'q' must be at least 3 characters
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Ekonomi
+        slug:
+          type: string
+          example: ekonomi
+
+    EditionBasic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        edition_date:
+          type: string
+          format: date
+          example: '2026-06-05'
+        edition_type:
+          type: string
+          enum: [PAGI, SIANG, MALAM]
+          example: MALAM
+        title:
+          type: string
+          example: Koran AI - Edisi Malam, Jumat 5 Juni 2026
+        published_at:
+          type: string
+          format: date-time
+          example: '2026-06-05T18:00:00Z'
+
+    ClusterBasic:
+      type: object
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          example: Ekonomi
+        title:
+          type: string
+          example: BI Tahan Suku Bunga Acuan BI-Rate di Level 6,25%
+        summary_short:
+          type: string
+          example: Bank Indonesia mempertahankan BI-Rate di 6,25% pada RDG bulan Juni.
+        image_url:
+          type: string
+          format: uri
+          example: https://storage.koranai.id/images/cluster_bi_rate.jpg
+        priority:
+          type: integer
+          example: 1
+        position:
+          type: integer
+          example: 1
+
+    EditionFull:
+      type: object
+      properties:
+        edition:
+          $ref: '#/components/schemas/EditionBasic'
+        sections:
+          type: object
+          properties:
+            FRONT_PAGE:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClusterBasic'
+            NASIONAL:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClusterBasic'
+            EKONOMI:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClusterBasic'
+            TEKNOLOGI:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClusterBasic'
+            UMKM:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClusterBasic'
+
+    TrendingTopic:
+      type: object
+      properties:
+        topic:
+          type: string
+          example: Suku Bunga BI
+        article_count:
+          type: integer
+          example: 12
+        category:
+          type: string
+          example: Ekonomi
+
+    SearchResult:
+      type: object
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: BI Tahan Suku Bunga Acuan BI-Rate di Level 6,25%
+        excerpt:
+          type: string
+          example: "...Bank Indonesia memutuskan menahan suku bunga BI-Rate di level 6.25%..."
+        category:
+          type: string
+          example: Ekonomi
+        image_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+
+    ArticleDetail:
+      type: object
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+        category:
+          $ref: '#/components/schemas/Category'
+        headline:
+          type: string
+          example: BI Tahan Suku Bunga Acuan BI-Rate di Level 6,25%
+        subheadline:
+          type: string
+          example: Langkah Moneter Menjaga Inflasi dan Penguatan Rupiah
+        summary:
+          type: string
+          example: Rapat Dewan Gubernur Bank Indonesia pada 5 Juni 2026 memutuskan untuk menahan...
+        impact:
+          type: string
+          example: Suku bunga perbankan bertahan tinggi, stabilisasi mata uang Rupiah menguat.
+        context:
+          type: string
+          example: Ketidakpastian arah kebijakan The Fed memicu langkah antisipasi dari BI.
+        references:
+          type: array
+          items:
+            type: object
+            properties:
+              source_name:
+                type: string
+                example: Kompas
+              url:
+                type: string
+                format: uri
+                example: https://ekonomi.kompas.com/read/2026/06/...
+        images:
+          type: array
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+                format: uri
+              caption:
+                type: string
+                example: Gedung Bank Indonesia Jakarta

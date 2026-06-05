@@ -1,0 +1,32 @@
+[Unit]
+Description=Koran AI Indonesia - Backend API Service
+Documentation=https://koranai.id
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/koran-ai/backend
+EnvironmentFile=/var/www/koran-ai/backend/.env
+ExecStart=/var/www/koran-ai/backend/koran-api
+ExecReload=/bin/kill -HUP $MAINPID
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=koran-backend
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/koran-ai
+
+[Install]
+WantedBy=multi-user.target
