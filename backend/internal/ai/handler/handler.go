@@ -23,9 +23,16 @@ func NewHandler(svc service.Service) *Handler {
 
 // Process handles POST /internal/ai/process.
 // Initiates classification for a batch of unprocessed articles.
+//
+// Body (optional JSON):
+//
+//	{ "limit": 100 }   // default: 100, max: 500
 func (h *Handler) Process(c fiber.Ctx) error {
+	const defaultLimit = 100
+	const maxLimit = 500
+
 	var req ProcessRequest
-	req.Limit = 10 // Default batch limit
+	req.Limit = defaultLimit
 
 	// Parse JSON request body if present
 	if c.Request().Body() != nil && len(c.Request().Body()) > 0 {
@@ -35,7 +42,10 @@ func (h *Handler) Process(c fiber.Ctx) error {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 10
+		req.Limit = defaultLimit
+	}
+	if req.Limit > maxLimit {
+		req.Limit = maxLimit
 	}
 
 	res, err := h.svc.Process(c.Context(), req.Limit)

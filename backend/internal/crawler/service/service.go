@@ -9,11 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	articleEntity "koran-ai-backend/internal/article/entity"
 	articleRepo "koran-ai-backend/internal/article/repository"
 	"koran-ai-backend/internal/crawler/rss"
 	sourceEntity "koran-ai-backend/internal/source/entity"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -142,8 +143,23 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 		normTitle := NormalizeText(item.Title)
 		normContent := NormalizeText(item.Content)
 
+		fmt.Printf(
+			"\nTITLE=%s\nURL=%s\nCONTENT_LEN=%d\nPUBLISHED=%v\n\n",
+			normTitle,
+			item.URL,
+			len(normContent),
+			item.PublishedAt,
+		)
+
 		// Quality Filter Checks
-		if normTitle == "" || len(normContent) < 100 || item.PublishedAt == nil {
+		if normTitle == "" {
+			fmt.Println("SKIP: EMPTY TITLE")
+			skipped++
+			continue
+		}
+
+		if item.PublishedAt == nil {
+			fmt.Printf("SKIP: NIL PUBLISHED_AT -> %s\n", normTitle)
 			skipped++
 			continue
 		}
@@ -151,9 +167,12 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 		// Check URL duplicate
 		exists, err := s.articleRepo.ExistsByURL(ctx, item.URL)
 		if err != nil {
+			fmt.Printf("URL CHECK ERROR: %v\n", err)
 			continue
 		}
+
 		if exists {
+			fmt.Printf("SKIP DUP URL: %s\n", item.URL)
 			continue
 		}
 
@@ -163,14 +182,18 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 		// Check hash duplicate
 		exists, err = s.articleRepo.ExistsByHash(ctx, hash)
 		if err != nil {
+			fmt.Printf("HASH CHECK ERROR: %v\n", err)
 			continue
 		}
+
 		if exists {
+			fmt.Printf("SKIP DUP HASH: %s\n", normTitle)
 			continue
 		}
 
 		// Build article entity
 		now := time.Now()
+
 		article := &articleEntity.Article{
 			ID:          uuid.New(),
 			SourceID:    src.ID,
@@ -190,12 +213,23 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 
 		// Save article
 		if err := s.articleRepo.Create(ctx, article); err != nil {
-			if errors.Is(err, articleRepo.ErrDuplicateURL) || errors.Is(err, articleRepo.ErrDuplicateHash) {
-				continue // race condition – skip silently
+
+			fmt.Printf(
+				"INSERT ERROR: %s -> %v\n",
+				normTitle,
+				err,
+			)
+
+			if errors.Is(err, articleRepo.ErrDuplicateURL) ||
+				errors.Is(err, articleRepo.ErrDuplicateHash) {
+				continue
 			}
-			// log but continue processing other articles
+
 			continue
 		}
+
+		fmt.Printf("SAVED: %s\n", normTitle)
+
 		saved++
 	}
 	result.ArticlesSaved = saved

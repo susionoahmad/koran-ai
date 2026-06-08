@@ -71,6 +71,62 @@ func TestHandler_Process_Success(t *testing.T) {
 	}
 }
 
+// TestHandler_Process_DefaultLimit verifies that when no body is provided,
+// the handler uses the default limit of 100.
+func TestHandler_Process_DefaultLimit(t *testing.T) {
+	app := fiber.New()
+	svc := &mockService{
+		processFunc: func(ctx context.Context, limit int) (*service.ProcessResult, error) {
+			if limit != 100 {
+				t.Errorf("expected default limit 100, got %d", limit)
+			}
+			return &service.ProcessResult{Processed: 34, Failed: 0}, nil
+		},
+	}
+	h := NewHandler(svc)
+	app.Post("/internal/ai/process", h.Process)
+
+	req := httptest.NewRequest("POST", "/internal/ai/process", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("failed to run test: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+// TestHandler_Process_MaxCapLimit verifies that a limit exceeding 500 is clamped
+// to 500 before being passed to the service.
+func TestHandler_Process_MaxCapLimit(t *testing.T) {
+	app := fiber.New()
+	svc := &mockService{
+		processFunc: func(ctx context.Context, limit int) (*service.ProcessResult, error) {
+			if limit != 500 {
+				t.Errorf("expected limit capped at 500, got %d", limit)
+			}
+			return &service.ProcessResult{Processed: 100, Failed: 0}, nil
+		},
+	}
+	h := NewHandler(svc)
+	app.Post("/internal/ai/process", h.Process)
+
+	reqBody, _ := json.Marshal(ProcessRequest{Limit: 9999})
+	req := httptest.NewRequest("POST", "/internal/ai/process", bytes.NewBuffer(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("failed to run test: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
 func TestHandler_Process_Conflict(t *testing.T) {
 	app := fiber.New()
 	svc := &mockService{

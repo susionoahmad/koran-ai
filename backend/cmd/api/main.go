@@ -10,12 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v3"
-	"go.uber.org/zap"
 	"koran-ai-backend/internal/shared/config"
 	"koran-ai-backend/internal/shared/database"
 	"koran-ai-backend/internal/shared/logger"
 	"koran-ai-backend/internal/shared/middleware"
+
+	"github.com/gofiber/fiber/v3"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -49,9 +50,16 @@ func main() {
 	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer redisCancel()
 
+	fmt.Println("REDIS_HOST =", cfg.RedisHost)
+	fmt.Println("REDIS_PORT =", cfg.RedisPort)
+	fmt.Println("REDIS_PASSWORD =", cfg.RedisPassword)
+
 	redisClient, err := database.ConnectRedis(redisCtx, cfg)
 	if err != nil {
-		log.Fatal("Failed to connect to Redis server", zap.Error(err))
+		log.Warn("Redis unavailable in development", zap.Error(err))
+		redisClient = nil
+	} else {
+		log.Info("Successfully connected to Redis client")
 	}
 	defer func() {
 		if err := redisClient.Close(); err != nil {
