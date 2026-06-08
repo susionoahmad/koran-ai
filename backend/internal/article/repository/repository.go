@@ -28,6 +28,12 @@ type Repository interface {
 	// ListUnclustered returns articles that are AI processed but not clustered.
 	ListUnclustered(ctx context.Context, limit int) ([]entity.Article, error)
 
+	// ListClusterCandidates returns AI-processed articles that are ready for clustering.
+	ListClusterCandidates(ctx context.Context, limit int) ([]entity.Article, error)
+
+	// CountClusterCandidates returns the number of AI-processed articles waiting for clustering.
+	CountClusterCandidates(ctx context.Context) (int64, error)
+
 	// CountTotal returns the total count of articles in the database.
 	CountTotal(ctx context.Context) (int64, error)
 

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -93,16 +94,11 @@ func (r *postgresRepository) ListUnprocessed(ctx context.Context, limit int) ([]
 
 	var articles []entity.Article
 	for rows.Next() {
-		var a entity.Article
-		if err := rows.Scan(
-			&a.ID, &a.SourceID, &a.Title, &a.Slug, &a.URL, &a.Author, &a.Content,
-			&a.PublishedAt, &a.ScrapedAt, &a.HashContent, &a.ImageURL, &a.Processed,
-			&a.AIProcessed, &a.AICategory, &a.AIConfidence, &a.AIProcessedAt,
-			&a.Clustered, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.AIError, &a.AIRetryCount,
-		); err != nil {
+		a, err := scanArticle(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan article: %w", err)
 		}
-		articles = append(articles, a)
+		articles = append(articles, *a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error: %w", err)
@@ -119,20 +115,14 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*entity.Ar
 		FROM articles
 		WHERE id = $1
 	`
-	var a entity.Article
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&a.ID, &a.SourceID, &a.Title, &a.Slug, &a.URL, &a.Author, &a.Content,
-		&a.PublishedAt, &a.ScrapedAt, &a.HashContent, &a.ImageURL, &a.Processed,
-		&a.AIProcessed, &a.AICategory, &a.AIConfidence, &a.AIProcessedAt,
-		&a.Clustered, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.AIError, &a.AIRetryCount,
-	)
+	a, err := scanArticle(r.db.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to get article by id: %w", err)
 	}
-	return &a, nil
+	return a, nil
 }
 
 func (r *postgresRepository) ListUnprocessedForAI(ctx context.Context, limit int) ([]entity.Article, error) {
@@ -154,16 +144,11 @@ func (r *postgresRepository) ListUnprocessedForAI(ctx context.Context, limit int
 
 	var articles []entity.Article
 	for rows.Next() {
-		var a entity.Article
-		if err := rows.Scan(
-			&a.ID, &a.SourceID, &a.Title, &a.Slug, &a.URL, &a.Author, &a.Content,
-			&a.PublishedAt, &a.ScrapedAt, &a.HashContent, &a.ImageURL, &a.Processed,
-			&a.AIProcessed, &a.AICategory, &a.AIConfidence, &a.AIProcessedAt,
-			&a.Clustered, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.AIError, &a.AIRetryCount,
-		); err != nil {
+		a, err := scanArticle(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan article: %w", err)
 		}
-		articles = append(articles, a)
+		articles = append(articles, *a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error: %w", err)
@@ -189,21 +174,93 @@ func (r *postgresRepository) ListUnclustered(ctx context.Context, limit int) ([]
 
 	var articles []entity.Article
 	for rows.Next() {
-		var a entity.Article
-		if err := rows.Scan(
-			&a.ID, &a.SourceID, &a.Title, &a.Slug, &a.URL, &a.Author, &a.Content,
-			&a.PublishedAt, &a.ScrapedAt, &a.HashContent, &a.ImageURL, &a.Processed,
-			&a.AIProcessed, &a.AICategory, &a.AIConfidence, &a.AIProcessedAt,
-			&a.Clustered, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.AIError, &a.AIRetryCount,
-		); err != nil {
+		a, err := scanArticle(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan article: %w", err)
 		}
-		articles = append(articles, a)
+		articles = append(articles, *a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error: %w", err)
 	}
 	return articles, nil
+}
+
+func (r *postgresRepository) ListClusterCandidates(ctx context.Context, limit int) ([]entity.Article, error) {
+	query := `
+		SELECT id, source_id, title, slug, url, author, content, published_at,
+		       scraped_at, hash_content, image_url, processed,
+		       ai_processed, ai_category, ai_confidence, ai_processed_at,
+		       clustered, cluster_id, created_at, updated_at, ai_error, ai_retry_count
+		FROM articles
+		WHERE ai_processed = TRUE AND clustered = FALSE
+		ORDER BY published_at DESC
+		LIMIT $1
+	`
+	rows, err := r.db.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list cluster candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var articles []entity.Article
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan cluster candidate article: %w", err)
+		}
+		articles = append(articles, *a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+	return articles, nil
+}
+
+func (r *postgresRepository) CountClusterCandidates(ctx context.Context) (int64, error) {
+	query := `SELECT COUNT(*) FROM articles WHERE ai_processed = TRUE AND clustered = FALSE`
+	var count int64
+	err := r.db.QueryRow(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count cluster candidates: %w", err)
+	}
+	return count, nil
+}
+
+type articleScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanArticle(scanner articleScanner) (*entity.Article, error) {
+	var a entity.Article
+	var author sql.NullString
+	var imageURL sql.NullString
+	var aiCategory sql.NullString
+	var aiError sql.NullString
+
+	err := scanner.Scan(
+		&a.ID, &a.SourceID, &a.Title, &a.Slug, &a.URL, &author, &a.Content,
+		&a.PublishedAt, &a.ScrapedAt, &a.HashContent, &imageURL, &a.Processed,
+		&a.AIProcessed, &aiCategory, &a.AIConfidence, &a.AIProcessedAt,
+		&a.Clustered, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &aiError, &a.AIRetryCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	a.Author = nullStringPtr(author)
+	a.ImageURL = nullStringPtr(imageURL)
+	a.AICategory = nullStringPtr(aiCategory)
+	a.AIError = nullStringPtr(aiError)
+
+	return &a, nil
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }
 
 // contains is a simple substring check to avoid importing strings package inline.
@@ -309,6 +366,3 @@ func (r *postgresRepository) CountAIProcessed(ctx context.Context) (int64, error
 	}
 	return count, nil
 }
-
-
-

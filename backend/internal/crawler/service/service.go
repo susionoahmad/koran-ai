@@ -200,12 +200,12 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 			Title:       normTitle,
 			Slug:        ToSlug(normTitle),
 			URL:         item.URL,
-			Author:      item.Author,
+			Author:      stringPtr(item.Author),
 			Content:     normContent,
 			PublishedAt: item.PublishedAt,
 			ScrapedAt:   now,
 			HashContent: hash,
-			ImageURL:    item.ImageURL,
+			ImageURL:    stringPtr(item.ImageURL),
 			Processed:   false,
 			CreatedAt:   now,
 			UpdatedAt:   now,
@@ -241,6 +241,13 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 	}
 
 	return result, nil
+}
+
+func stringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // RunAllSources iterates over all active sources and crawls each one.

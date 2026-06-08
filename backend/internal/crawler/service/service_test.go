@@ -17,9 +17,9 @@ import (
 
 // MockSourceRepository implements service.SourceRepository for testing.
 type MockSourceRepository struct {
-	GetByIDFunc   func(ctx context.Context, id string) (*sourceEntity.Source, error)
+	GetByIDFunc    func(ctx context.Context, id string) (*sourceEntity.Source, error)
 	ListActiveFunc func(ctx context.Context) ([]sourceEntity.Source, error)
-	ListFunc      func(ctx context.Context, page, limit int) ([]sourceEntity.Source, int64, error)
+	ListFunc       func(ctx context.Context, page, limit int) ([]sourceEntity.Source, int64, error)
 }
 
 func (m *MockSourceRepository) GetByID(ctx context.Context, id string) (*sourceEntity.Source, error) {
@@ -45,15 +45,17 @@ func (m *MockSourceRepository) List(ctx context.Context, page, limit int) ([]sou
 
 // MockArticleRepository implements articleRepo.Repository for testing.
 type MockArticleRepository struct {
-	CreateFunc          func(ctx context.Context, a *articleEntity.Article) error
-	ExistsByURLFunc      func(ctx context.Context, url string) (bool, error)
-	ExistsByHashFunc      func(ctx context.Context, hash string) (bool, error)
-	ListUnprocessedFunc func(ctx context.Context, limit int) ([]articleEntity.Article, error)
-	GetByIDFunc         func(ctx context.Context, id string) (*articleEntity.Article, error)
-	ListUnprocessedForAIFunc func(ctx context.Context, limit int) ([]articleEntity.Article, error)
-	ListUnclusteredFunc func(ctx context.Context, limit int) ([]articleEntity.Article, error)
-	CountTotalFunc      func(ctx context.Context) (int64, error)
-	CountTodayFunc      func(ctx context.Context) (int64, error)
+	CreateFunc                 func(ctx context.Context, a *articleEntity.Article) error
+	ExistsByURLFunc            func(ctx context.Context, url string) (bool, error)
+	ExistsByHashFunc           func(ctx context.Context, hash string) (bool, error)
+	ListUnprocessedFunc        func(ctx context.Context, limit int) ([]articleEntity.Article, error)
+	GetByIDFunc                func(ctx context.Context, id string) (*articleEntity.Article, error)
+	ListUnprocessedForAIFunc   func(ctx context.Context, limit int) ([]articleEntity.Article, error)
+	ListUnclusteredFunc        func(ctx context.Context, limit int) ([]articleEntity.Article, error)
+	ListClusterCandidatesFunc  func(ctx context.Context, limit int) ([]articleEntity.Article, error)
+	CountClusterCandidatesFunc func(ctx context.Context) (int64, error)
+	CountTotalFunc             func(ctx context.Context) (int64, error)
+	CountTodayFunc             func(ctx context.Context) (int64, error)
 }
 
 func (m *MockArticleRepository) Create(ctx context.Context, a *articleEntity.Article) error {
@@ -105,6 +107,20 @@ func (m *MockArticleRepository) ListUnclustered(ctx context.Context, limit int) 
 	return nil, nil
 }
 
+func (m *MockArticleRepository) ListClusterCandidates(ctx context.Context, limit int) ([]articleEntity.Article, error) {
+	if m.ListClusterCandidatesFunc != nil {
+		return m.ListClusterCandidatesFunc(ctx, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockArticleRepository) CountClusterCandidates(ctx context.Context) (int64, error) {
+	if m.CountClusterCandidatesFunc != nil {
+		return m.CountClusterCandidatesFunc(ctx)
+	}
+	return 0, nil
+}
+
 func (m *MockArticleRepository) CountTotal(ctx context.Context) (int64, error) {
 	if m.CountTotalFunc != nil {
 		return m.CountTotalFunc(ctx)
@@ -141,8 +157,8 @@ func (m *MockArticleRepository) CountAIProcessed(ctx context.Context) (int64, er
 
 // MockCrawlLogRepository implements service.CrawlLogRepository for testing.
 type MockCrawlLogRepository struct {
-	CreateFunc func(ctx context.Context, log *service.CrawlLog) (int64, error)
-	FinishFunc func(ctx context.Context, id int64, status string, found, saved, skipped int, durationMs int64, errMsg string) error
+	CreateFunc   func(ctx context.Context, log *service.CrawlLog) (int64, error)
+	FinishFunc   func(ctx context.Context, id int64, status string, found, saved, skipped int, durationMs int64, errMsg string) error
 	GetStatsFunc func(ctx context.Context) (*time.Time, int64, error)
 }
 
@@ -757,7 +773,6 @@ func TestCrawlerService_GetStats(t *testing.T) {
 		t.Error("expected last crawl timestamp to be set")
 	}
 }
-
 
 func TestCrawlerService_GetStats_NilLastCrawl(t *testing.T) {
 	sourceRepo := &MockSourceRepository{

@@ -78,12 +78,12 @@ func TestPostgresRepository_Articles(t *testing.T) {
 		Title:       "Test Article Integration",
 		Slug:        "test-article-integration",
 		URL:         testURL,
-		Author:      "Author",
+		Author:      stringPtr("Author"),
 		Content:     "Hello world test article content",
 		PublishedAt: &pubTime,
 		ScrapedAt:   time.Now(),
 		HashContent: testHash,
-		ImageURL:    "https://example.com/img.jpg",
+		ImageURL:    stringPtr("https://example.com/img.jpg"),
 		Processed:   false,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -156,4 +156,8 @@ func TestPostgresRepository_Articles(t *testing.T) {
 	if !errors.Is(err, articleRepo.ErrNotFound) {
 		t.Errorf("Expected ErrNotFound, got %v", err)
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

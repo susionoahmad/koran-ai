@@ -10,6 +10,9 @@ import (
 	aiService "koran-ai-backend/internal/ai/service"
 	aiWorker "koran-ai-backend/internal/ai/worker"
 	articleRepo "koran-ai-backend/internal/article/repository"
+	clusteringHandler "koran-ai-backend/internal/clustering/handler"
+	clusteringRepo "koran-ai-backend/internal/clustering/repository"
+	clusteringService "koran-ai-backend/internal/clustering/service"
 	crawlerHandler "koran-ai-backend/internal/crawler/handler"
 	crawlerRepo "koran-ai-backend/internal/crawler/repository"
 	crawlerRSS "koran-ai-backend/internal/crawler/rss"
@@ -62,6 +65,14 @@ func registerRoutes(app *fiber.App, db *pgxpool.Pool, rdb *redis.Client, log app
 	internal.Post("/ai/process", aiHdl.Process)
 	internal.Get("/ai/stats", aiHdl.GetStats)
 
+	// News Clustering Module
+	clusterRepo := clusteringRepo.NewPostgresRepository(db)
+	clusterSvc := clusteringService.NewService(artRepo, clusterRepo, rdb)
+	clusterHdl := clusteringHandler.NewHandler(clusterSvc)
+
+	internal.Post("/clustering/run", clusterHdl.Run)
+	internal.Get("/clustering/stats", clusterHdl.Stats)
+
 	// ── Public API v1 group ───────────────────────────────────────────────────
 	v1 := app.Group("/api/v1")
 
@@ -75,5 +86,7 @@ func registerRoutes(app *fiber.App, db *pgxpool.Pool, rdb *redis.Client, log app
 	v1.Get("/sources/:id", srcHandler.GetByID)
 	v1.Put("/sources/:id", srcHandler.Update)
 	v1.Delete("/sources/:id", srcHandler.Delete)
-}
 
+	v1.Get("/clusters", clusterHdl.List)
+	v1.Get("/clusters/:id", clusterHdl.Detail)
+}
