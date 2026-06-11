@@ -17,6 +17,9 @@ import (
 	crawlerRepo "koran-ai-backend/internal/crawler/repository"
 	crawlerRSS "koran-ai-backend/internal/crawler/rss"
 	crawlerService "koran-ai-backend/internal/crawler/service"
+	editionHandler "koran-ai-backend/internal/edition/handler"
+	editionRepo "koran-ai-backend/internal/edition/repository"
+	editionService "koran-ai-backend/internal/edition/service"
 	"koran-ai-backend/internal/health"
 	"koran-ai-backend/internal/shared/config"
 	appLogger "koran-ai-backend/internal/shared/logger"
@@ -25,6 +28,9 @@ import (
 	"koran-ai-backend/internal/source/handler"
 	sourceRepo "koran-ai-backend/internal/source/repository"
 	"koran-ai-backend/internal/source/service"
+	summaryHandler "koran-ai-backend/internal/summary/handler"
+	summaryRepo "koran-ai-backend/internal/summary/repository"
+	summaryService "koran-ai-backend/internal/summary/service"
 )
 
 // registerRoutes sets up all public and internal API routes.
@@ -73,6 +79,22 @@ func registerRoutes(app *fiber.App, db *pgxpool.Pool, rdb *redis.Client, log app
 	internal.Post("/clustering/run", clusterHdl.Run)
 	internal.Get("/clustering/stats", clusterHdl.Stats)
 
+	// AI Summary Module
+	sumRepo := summaryRepo.NewPostgresRepository(db)
+	sumSvc := summaryService.NewService(sumRepo, clientInstance, rdb, cfg.GeminiModel, log)
+	sumHdl := summaryHandler.NewHandler(sumSvc, log)
+
+	internal.Post("/summaries/generate", sumHdl.Generate)
+	internal.Get("/summaries/stats", sumHdl.Stats)
+
+	// Daily Edition Module
+	edRepository := editionRepo.NewPostgresRepository(db)
+	edSvc := editionService.NewService(edRepository, rdb, log)
+	edHdl := editionHandler.NewHandler(edSvc, log)
+
+	internal.Post("/editions/generate", edHdl.Generate)
+	internal.Get("/editions/stats", edHdl.Stats)
+
 	// ── Public API v1 group ───────────────────────────────────────────────────
 	v1 := app.Group("/api/v1")
 
@@ -88,5 +110,12 @@ func registerRoutes(app *fiber.App, db *pgxpool.Pool, rdb *redis.Client, log app
 	v1.Delete("/sources/:id", srcHandler.Delete)
 
 	v1.Get("/clusters", clusterHdl.List)
+	v1.Get("/clusters/:id/summary", sumHdl.ByCluster)
 	v1.Get("/clusters/:id", clusterHdl.Detail)
+	v1.Get("/summaries", sumHdl.List)
+	v1.Get("/summaries/:id", sumHdl.Detail)
+
+	v1.Get("/editions", edHdl.List)
+	v1.Get("/editions/latest", edHdl.Latest)
+	v1.Get("/editions/:id", edHdl.Detail)
 }

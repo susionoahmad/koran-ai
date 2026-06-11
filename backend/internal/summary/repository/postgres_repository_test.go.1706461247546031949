@@ -1,0 +1,353 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"koran-ai-backend/internal/summary/entity"
+)
+
+type fakeDB struct {
+	execTag pgconn.CommandTag
+	execErr error
+	rows    pgx.Rows
+	row     pgx.Row
+}
+
+func (f *fakeDB) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return f.execTag, f.execErr
+}
+func (f *fakeDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if f.execErr != nil {
+		return nil, f.execErr
+	}
+	return f.rows, nil
+}
+func (f *fakeDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return f.row
+}
+
+type fakeRow struct {
+	values []any
+	err    error
+}
+
+func (f fakeRow) Scan(dest ...any) error {
+	if f.err != nil {
+		return f.err
+	}
+	for i := range dest {
+		assign(dest[i], f.values[i])
+	}
+	return nil
+}
+
+type fakeRows struct {
+	values [][]any
+	idx    int
+	err    error
+	scanErr error
+	closed bool
+}
+
+func (f *fakeRows) Close()                                       { f.closed = true }
+func (f *fakeRows) Err() error                                   { return f.err }
+func (f *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("SELECT 1") }
+func (f *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (f *fakeRows) Next() bool {
+	if f.idx >= len(f.values) {
+		return false
+	}
+	f.idx++
+	return true
+}
+func (f *fakeRows) Scan(dest ...any) error {
+	if f.scanErr != nil {
+		return f.scanErr
+	}
+	row := f.values[f.idx-1]
+	for i := range dest {
+		assign(dest[i], row[i])
+	}
+	return nil
+}
+func (f *fakeRows) Values() ([]any, error) { return f.values[f.idx-1], nil }
+func (f *fakeRows) RawValues() [][]byte    { return nil }
+func (f *fakeRows) Conn() *pgx.Conn        { return nil }
+
+func assign(dest any, value any) {
+	switch d := dest.(type) {
+	case *uuid.UUID:
+		*d = value.(uuid.UUID)
+	case *string:
+		*d = value.(string)
+	case *[]byte:
+		*d = value.([]byte)
+	case *float64:
+		*d = value.(float64)
+	case *time.Time:
+		*d = value.(time.Time)
+	case **time.Time:
+		if value == nil {
+			*d = nil
+		} else {
+			v := value.(time.Time)
+			*d = &v
+		}
+	case **uuid.UUID:
+		if value == nil {
+			*d = nil
+		} else {
+			v := value.(uuid.UUID)
+			*d = &v
+		}
+	case *bool:
+		*d = value.(bool)
+	case *int:
+		*d = value.(int)
+	case *int64:
+		*d = value.(int64)
+	case *sql.NullString:
+		*d = value.(sql.NullString)
+	}
+}
+
+func summaryValues(id uuid.UUID, clusterID uuid.UUID, now time.Time) []any {
+	return []any{id, clusterID, "Headline", "Short", "Medium", "", []byte(`["Point"]`), "gemini", 0.9, now, now, now}
+}
+
+func TestCreateSummary(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{}}
+	err := repo.CreateSummary(context.Background(), &entity.Summary{
+		ClusterID:    uuid.New(),
+		Headline:     "Headline",
+		SummaryShort: "Short",
+		KeyPoints:    []string{"Point"},
+	})
+	if err != nil {
+		t.Fatalf("CreateSummary returned error: %v", err)
+	}
+}
+
+func TestCreateSummary_Error(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{execErr: errors.New("insert failed")}}
+	err := repo.CreateSummary(context.Background(), &entity.Summary{ClusterID: uuid.New(), Headline: "H", SummaryShort: "S"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetSummaryByID(t *testing.T) {
+	id := uuid.New()
+	clusterID := uuid.New()
+	now := time.Now()
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{values: summaryValues(id, clusterID, now)}}}
+	got, err := repo.GetSummaryByID(context.Background(), id.String())
+	if err != nil {
+		t.Fatalf("GetSummaryByID returned error: %v", err)
+	}
+	if got.ID != id || got.ClusterID != clusterID || len(got.KeyPoints) != 1 {
+		t.Fatalf("unexpected summary: %+v", got)
+	}
+}
+
+func TestGetSummaryByID_NotFoundAndError(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{err: pgx.ErrNoRows}}}
+	_, err := repo.GetSummaryByID(context.Background(), uuid.New().String())
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	repo = &postgresRepository{db: &fakeDB{row: fakeRow{err: errors.New("scan failed")}}}
+	_, err = repo.GetSummaryByID(context.Background(), uuid.New().String())
+	if err == nil {
+		t.Fatal("expected scan error")
+	}
+}
+
+func TestGetSummaryByClusterID(t *testing.T) {
+	id := uuid.New()
+	clusterID := uuid.New()
+	now := time.Now()
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{values: summaryValues(id, clusterID, now)}}}
+	got, err := repo.GetSummaryByClusterID(context.Background(), clusterID.String())
+	if err != nil {
+		t.Fatalf("GetSummaryByClusterID returned error: %v", err)
+	}
+	if got.ClusterID != clusterID {
+		t.Fatalf("unexpected summary: %+v", got)
+	}
+}
+
+func TestGetSummaryByClusterID_NotFoundAndError(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{err: pgx.ErrNoRows}}}
+	_, err := repo.GetSummaryByClusterID(context.Background(), uuid.New().String())
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	repo = &postgresRepository{db: &fakeDB{row: fakeRow{err: errors.New("scan failed")}}}
+	_, err = repo.GetSummaryByClusterID(context.Background(), uuid.New().String())
+	if err == nil {
+		t.Fatal("expected scan error")
+	}
+}
+
+func TestListSummaries(t *testing.T) {
+	id := uuid.New()
+	clusterID := uuid.New()
+	now := time.Now()
+	rows := &fakeRows{values: [][]any{summaryValues(id, clusterID, now)}}
+	repo := &postgresRepository{db: &fakeDB{
+		row:  fakeRow{values: []any{int64(1)}},
+		rows: rows,
+	}}
+	got, total, err := repo.ListSummaries(context.Background(), 0, 0)
+	if err != nil {
+		t.Fatalf("ListSummaries returned error: %v", err)
+	}
+	if total != 1 || len(got) != 1 || !rows.closed {
+		t.Fatalf("unexpected result total=%d got=%+v closed=%v", total, got, rows.closed)
+	}
+}
+
+func TestListSummaries_Errors(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{err: errors.New("count failed")}}}
+	_, _, err := repo.ListSummaries(context.Background(), 1, 20)
+	if err == nil {
+		t.Fatal("expected count error")
+	}
+	repo = &postgresRepository{db: &fakeDB{row: fakeRow{values: []any{int64(1)}}, execErr: errors.New("query failed")}}
+	_, _, err = repo.ListSummaries(context.Background(), 1, 20)
+	if err == nil {
+		t.Fatal("expected query error")
+	}
+	repo = &postgresRepository{db: &fakeDB{row: fakeRow{values: []any{int64(1)}}, rows: &fakeRows{err: errors.New("rows failed")}}}
+	_, _, err = repo.ListSummaries(context.Background(), 1, 20)
+	if err == nil {
+		t.Fatal("expected rows error")
+	}
+}
+
+func TestListPendingClusters(t *testing.T) {
+	id := uuid.New()
+	rows := &fakeRows{values: [][]any{{id.String()}}}
+	repo := &postgresRepository{db: &fakeDB{rows: rows}}
+	got, err := repo.ListPendingClusters(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListPendingClusters returned error: %v", err)
+	}
+	if len(got) != 1 || got[0] != id.String() {
+		t.Fatalf("unexpected ids: %+v", got)
+	}
+}
+
+func TestListPendingClusters_Errors(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{execErr: errors.New("query failed")}}
+	_, err := repo.ListPendingClusters(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected query error")
+	}
+	repo = &postgresRepository{db: &fakeDB{rows: &fakeRows{err: errors.New("rows failed")}}}
+	_, err = repo.ListPendingClusters(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected rows error")
+	}
+}
+
+func TestCountSummaries(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{values: []any{int64(4)}}}}
+	count, err := repo.CountSummaries(context.Background())
+	if err != nil {
+		t.Fatalf("CountSummaries returned error: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("expected 4, got %d", count)
+	}
+}
+
+func TestCountSummaries_Error(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{err: errors.New("count failed")}}}
+	if _, err := repo.CountSummaries(context.Background()); err == nil {
+		t.Fatal("expected count error")
+	}
+}
+
+func TestListClusterArticles(t *testing.T) {
+	articleID := uuid.New()
+	sourceID := uuid.New()
+	clusterID := uuid.New()
+	now := time.Now()
+	rows := &fakeRows{values: [][]any{{
+		articleID, sourceID, "Title", "slug", "https://example.test", sql.NullString{String: "Author", Valid: true}, "Content",
+		now, now, "hash", sql.NullString{String: "image", Valid: true}, true,
+		true, sql.NullString{String: "Ekonomi", Valid: true}, 0.8, now,
+		true, clusterID, now, now, sql.NullString{}, 1,
+	}}}
+	repo := &postgresRepository{db: &fakeDB{rows: rows}}
+	articles, err := repo.ListClusterArticles(context.Background(), clusterID.String())
+	if err != nil {
+		t.Fatalf("ListClusterArticles returned error: %v", err)
+	}
+	if len(articles) != 1 || articles[0].ID != articleID || articles[0].Author == nil || *articles[0].Author != "Author" {
+		t.Fatalf("unexpected articles: %+v", articles)
+	}
+	if !rows.closed {
+		t.Fatal("expected rows to close")
+	}
+}
+
+func TestListClusterArticles_Errors(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{execErr: errors.New("query failed")}}
+	_, err := repo.ListClusterArticles(context.Background(), uuid.New().String())
+	if err == nil {
+		t.Fatal("expected query error")
+	}
+
+	repo = &postgresRepository{db: &fakeDB{rows: &fakeRows{
+		values:  [][]any{{}},
+		scanErr: errors.New("scan failed"),
+	}}}
+	_, err = repo.ListClusterArticles(context.Background(), uuid.New().String())
+	if err == nil {
+		t.Fatal("expected scan error")
+	}
+
+	repo = &postgresRepository{db: &fakeDB{rows: &fakeRows{err: errors.New("rows failed")}}}
+	_, err = repo.ListClusterArticles(context.Background(), uuid.New().String())
+	if err == nil {
+		t.Fatal("expected rows error")
+	}
+}
+
+func TestScanSummary_InvalidKeyPoints(t *testing.T) {
+	id := uuid.New()
+	clusterID := uuid.New()
+	now := time.Now()
+	_, err := scanSummary(fakeRow{values: []any{id, clusterID, "H", "S", "", "", []byte(`{`), "", 0.5, now, now, now}})
+	if err == nil {
+		t.Fatal("expected key point JSON error")
+	}
+}
+
+func TestStats(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{values: []any{int64(2), int64(3)}}}}
+	stats, err := repo.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats returned error: %v", err)
+	}
+	if stats.TotalSummaries != 2 || stats.PendingClusters != 3 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+}
+
+func TestStats_Error(t *testing.T) {
+	repo := &postgresRepository{db: &fakeDB{row: fakeRow{err: errors.New("count failed")}}}
+	if _, err := repo.Stats(context.Background()); err == nil {
+		t.Fatal("expected stats error")
+	}
+}

@@ -62,11 +62,13 @@ func main() {
 		log.Info("Successfully connected to Redis client")
 	}
 	defer func() {
+		if redisClient == nil {
+			return
+		}
 		if err := redisClient.Close(); err != nil {
 			log.Error("Error closing Redis connection", zap.Error(err))
 		}
 	}()
-	log.Info("Successfully connected to Redis client")
 
 	// 5. Initialize Go Fiber application
 	app := fiber.New(fiber.Config{

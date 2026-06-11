@@ -1,0 +1,173 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
+	"koran-ai-backend/internal/summary/entity"
+	"koran-ai-backend/internal/summary/repository"
+	"koran-ai-backend/internal/summary/service"
+)
+
+type mockService struct {
+	generateFunc     func(ctx context.Context, limit int) (*service.BatchResult, error)
+	statsFunc        func(ctx context.Context) (*service.Stats, error)
+	listFunc         func(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error)
+	detailFunc       func(ctx context.Context, id string) (*entity.Summary, error)
+	byClusterIDFunc  func(ctx context.Context, clusterID string) (*entity.Summary, error)
+}
+
+func (m *mockService) GenerateClusterSummary(ctx context.Context, clusterID string) (*entity.Summary, error) {
+	return nil, nil
+}
+func (m *mockService) GenerateBatch(ctx context.Context, limit int) (*service.BatchResult, error) {
+	return m.generateFunc(ctx, limit)
+}
+func (m *mockService) GetStats(ctx context.Context) (*service.Stats, error) {
+	return m.statsFunc(ctx)
+}
+func (m *mockService) ListSummaries(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error) {
+	return m.listFunc(ctx, page, limit)
+}
+func (m *mockService) GetSummaryByID(ctx context.Context, id string) (*entity.Summary, error) {
+	return m.detailFunc(ctx, id)
+}
+func (m *mockService) GetSummaryByClusterID(ctx context.Context, clusterID string) (*entity.Summary, error) {
+	return m.byClusterIDFunc(ctx, clusterID)
+}
+
+func TestGenerate(t *testing.T) {
+	app := fiber.New()
+	h := NewHandler(&mockService{generateFunc: func(ctx context.Context, limit int) (*service.BatchResult, error) {
+		if limit != 5 {
+			t.Fatalf("unexpected limit %d", limit)
+		}
+		return &service.BatchResult{Processed: 1}, nil
+	}})
+	app.Post("/internal/summaries/generate", h.Generate)
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/internal/summaries/generate", strings.NewReader(`{"limit":5}`)))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestGenerateErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"conflict", service.ErrWorkerAlreadyRunning, http.StatusConflict},
+		{"server", errors.New("db down"), http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := fiber.New()
+			h := NewHandler(&mockService{generateFunc: func(ctx context.Context, limit int) (*service.BatchResult, error) {
+				return nil, tt.err
+			}})
+			app.Post("/internal/summaries/generate", h.Generate)
+			resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/internal/summaries/generate", nil))
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tt.want {
+				t.Fatalf("expected %d, got %d", tt.want, resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestStatsListAndDetails(t *testing.T) {
+	id := uuid.New()
+	clusterID := uuid.New()
+	app := fiber.New()
+	h := NewHandler(&mockService{
+		statsFunc: func(ctx context.Context) (*service.Stats, error) {
+			return &service.Stats{TotalSummaries: 1}, nil
+		},
+		listFunc: func(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error) {
+			if page != 1 || limit != 100 {
+				t.Fatalf("unexpected pagination page=%d limit=%d", page, limit)
+			}
+			return []entity.Summary{{ID: id}}, 1, nil
+		},
+		detailFunc: func(ctx context.Context, gotID string) (*entity.Summary, error) {
+			return &entity.Summary{ID: id}, nil
+		},
+		byClusterIDFunc: func(ctx context.Context, gotID string) (*entity.Summary, error) {
+			return &entity.Summary{ClusterID: clusterID}, nil
+		},
+	})
+	app.Get("/internal/summaries/stats", h.Stats)
+	app.Get("/api/v1/summaries", h.List)
+	app.Get("/api/v1/summaries/:id", h.Detail)
+	app.Get("/api/v1/clusters/:id/summary", h.ByCluster)
+
+	for _, req := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/internal/summaries/stats", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/summaries?limit=500", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/summaries/"+id.String(), nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/clusters/"+clusterID.String()+"/summary", nil),
+	} {
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", req.URL.Path, resp.StatusCode)
+		}
+	}
+}
+
+func TestNotFoundAndServerErrors(t *testing.T) {
+	app := fiber.New()
+	h := NewHandler(&mockService{
+		statsFunc: func(ctx context.Context) (*service.Stats, error) {
+			return nil, errors.New("db down")
+		},
+		listFunc: func(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error) {
+			return nil, 0, errors.New("db down")
+		},
+		detailFunc: func(ctx context.Context, id string) (*entity.Summary, error) {
+			return nil, repository.ErrNotFound
+		},
+		byClusterIDFunc: func(ctx context.Context, clusterID string) (*entity.Summary, error) {
+			return nil, errors.New("db down")
+		},
+	})
+	app.Get("/internal/summaries/stats", h.Stats)
+	app.Get("/api/v1/summaries", h.List)
+	app.Get("/api/v1/summaries/:id", h.Detail)
+	app.Get("/api/v1/clusters/:id/summary", h.ByCluster)
+
+	cases := map[string]int{
+		"/internal/summaries/stats": http.StatusInternalServerError,
+		"/api/v1/summaries":        http.StatusInternalServerError,
+		"/api/v1/summaries/id":     http.StatusNotFound,
+		"/api/v1/clusters/id/summary": http.StatusInternalServerError,
+	}
+	for path, want := range cases {
+		resp, err := app.Test(httptest.NewRequest(http.MethodGet, path, nil))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("expected %d for %s, got %d", want, path, resp.StatusCode)
+		}
+	}
+}

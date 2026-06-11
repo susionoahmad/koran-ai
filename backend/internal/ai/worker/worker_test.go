@@ -45,6 +45,10 @@ func (m *mockGeminiClient) ClassifyArticle(ctx context.Context, title string, co
 	return m.classifyFunc(ctx, title, content)
 }
 
+func (m *mockGeminiClient) SummarizeCluster(ctx context.Context, content string) (*client.SummaryResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 type mockRedis struct {
 	redis.Cmdable
 	setNXFunc func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
@@ -67,8 +71,8 @@ func (m *mockLogger) Info(msg string, fields ...zap.Field)  { m.zapLog.Info(msg,
 func (m *mockLogger) Warn(msg string, fields ...zap.Field)  { m.zapLog.Warn(msg, fields...) }
 func (m *mockLogger) Error(msg string, fields ...zap.Field) { m.zapLog.Error(msg, fields...) }
 func (m *mockLogger) Fatal(msg string, fields ...zap.Field) { m.zapLog.Fatal(msg, fields...) }
-func (m *mockLogger) Sync() error                          { return m.zapLog.Sync() }
-func (m *mockLogger) GetZapLogger() *zap.Logger            { return m.zapLog }
+func (m *mockLogger) Sync() error                           { return m.zapLog.Sync() }
+func (m *mockLogger) GetZapLogger() *zap.Logger             { return m.zapLog }
 
 // ---------------------------------------------------------------------------
 // Helpers

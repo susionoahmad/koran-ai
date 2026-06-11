@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/genai"
 	"koran-ai-backend/internal/ai/prompt"
+	summaryPrompt "koran-ai-backend/internal/summary/prompt"
 )
 
 // ClassifyResult represents the outcome of article classification.
@@ -15,9 +16,19 @@ type ClassifyResult struct {
 	Confidence float64
 }
 
-// GeminiClient defines the client interface for classifying articles.
+// SummaryResult represents the outcome of cluster summarization.
+type SummaryResult struct {
+	Headline      string
+	SummaryShort  string
+	SummaryMedium string
+	KeyPoints     []string
+	Confidence    float64
+}
+
+// GeminiClient defines the client interface for article and cluster AI tasks.
 type GeminiClient interface {
 	ClassifyArticle(ctx context.Context, title string, content string) (*ClassifyResult, error)
+	SummarizeCluster(ctx context.Context, content string) (*SummaryResult, error)
 }
 
 type geminiClient struct {
@@ -84,5 +95,31 @@ func (c *geminiClient) ClassifyArticle(ctx context.Context, title string, conten
 	}, nil
 }
 
-// Note: conf is undefined in the return above because of a typo. Let's fix that typo.
-// It should be confidence.
+// SummarizeCluster makes a timeout-bound Gemini request and parses a strict JSON summary response.
+func (c *geminiClient) SummarizeCluster(ctx context.Context, content string) (*SummaryResult, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	promptStr := summaryPrompt.BuildSummaryPrompt(content)
+	resp, err := c.client.Models.GenerateContent(
+		timeoutCtx,
+		c.modelName,
+		genai.Text(promptStr),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gemini API call failed: %w", err)
+	}
+
+	parsed, err := summaryPrompt.ParseSummaryResponse(resp.Text())
+	if err != nil {
+		return nil, err
+	}
+	return &SummaryResult{
+		Headline:      parsed.Headline,
+		SummaryShort:  parsed.SummaryShort,
+		SummaryMedium: parsed.SummaryMedium,
+		KeyPoints:     parsed.KeyPoints,
+		Confidence:    parsed.Confidence,
+	}, nil
+}

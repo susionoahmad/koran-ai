@@ -158,6 +158,12 @@ func (s *crawlerService) RunSource(ctx context.Context, sourceID string) (*Crawl
 			continue
 		}
 
+		if len(normContent) < 100 {
+			fmt.Printf("SKIP: SHORT CONTENT -> %s\n", normTitle)
+			skipped++
+			continue
+		}
+
 		if item.PublishedAt == nil {
 			fmt.Printf("SKIP: NIL PUBLISHED_AT -> %s\n", normTitle)
 			skipped++

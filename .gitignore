@@ -9,6 +9,7 @@
 bin/
 dist/
 tmp/
+.gocache/
 
 *.exe
 *.exe~
@@ -20,6 +21,8 @@ tmp/
 
 coverage.out
 coverage.html
+backend/internal/shared/config/test_config.env
+backend/internal/ai/worker/worker_test.go.*
 
 # Logs
 
@@ -42,12 +45,14 @@ frontend/.nuxt/
 frontend/.output/
 
 # Build
-
+g
 frontend/dist/
 
 # Database dumps
 
 *.sql
+!backend/migrations/000006_ai_summary_engine.up.sql
+!backend/migrations/000006_ai_summary_engine.down.sql
 *.dump
 
 # Local uploads

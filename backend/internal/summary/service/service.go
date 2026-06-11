@@ -1,0 +1,229 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+	aiClient "koran-ai-backend/internal/ai/client"
+	articleEntity "koran-ai-backend/internal/article/entity"
+	appLogger "koran-ai-backend/internal/shared/logger"
+	"koran-ai-backend/internal/summary/entity"
+	"koran-ai-backend/internal/summary/repository"
+)
+
+const (
+	defaultBatchLimit = 50
+	maxBatchLimit     = 500
+	summaryLockKey    = "summary_worker_lock"
+	summaryLockTTL    = 5 * time.Minute
+)
+
+var (
+	ErrWorkerAlreadyRunning = errors.New("summary worker already running")
+	ErrClusterHasNoArticles = errors.New("cluster has zero articles")
+)
+
+// BatchResult holds metrics for a summary generation batch.
+type BatchResult struct {
+	TotalClusters int     `json:"total_clusters"`
+	Processed     int     `json:"processed"`
+	Failed        int     `json:"failed"`
+	DurationMS    int64   `json:"duration_ms"`
+	SuccessRate   float64 `json:"success_rate"`
+}
+
+// Stats contains summary engine metrics.
+type Stats struct {
+	TotalSummaries  int64 `json:"total_summaries"`
+	PendingClusters int64 `json:"pending_clusters"`
+}
+
+// Service defines summary operations.
+type Service interface {
+	GenerateClusterSummary(ctx context.Context, clusterID string) (*entity.Summary, error)
+	GenerateBatch(ctx context.Context, limit int) (*BatchResult, error)
+	GetStats(ctx context.Context) (*Stats, error)
+	ListSummaries(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error)
+	GetSummaryByID(ctx context.Context, id string) (*entity.Summary, error)
+	GetSummaryByClusterID(ctx context.Context, clusterID string) (*entity.Summary, error)
+}
+
+type summaryService struct {
+	repo   repository.Repository
+	client aiClient.GeminiClient
+	rdb    redis.Cmdable
+	model  string
+	logger appLogger.Logger
+}
+
+// NewService creates a summary service.
+func NewService(repo repository.Repository, client aiClient.GeminiClient, rdb redis.Cmdable, model string, logger appLogger.Logger) Service {
+	return &summaryService{repo: repo, client: client, rdb: rdb, model: model, logger: logger}
+}
+
+func (s *summaryService) GenerateClusterSummary(ctx context.Context, clusterID string) (*entity.Summary, error) {
+	articles, err := s.repo.ListClusterArticles(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load cluster articles: %w", err)
+	}
+	if len(articles) == 0 {
+		return nil, ErrClusterHasNoArticles
+	}
+	if s.client == nil {
+		return nil, fmt.Errorf("gemini client is unavailable")
+	}
+
+	content := mergeArticleContent(articles)
+	result, err := s.client.SummarizeCluster(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("gemini summary failed: %w", err)
+	}
+
+	clusterUUID, err := uuid.Parse(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cluster id: %w", err)
+	}
+	now := time.Now()
+	summary := &entity.Summary{
+		ID:            uuid.New(),
+		ClusterID:     clusterUUID,
+		Headline:      result.Headline,
+		SummaryShort:  result.SummaryShort,
+		SummaryMedium: result.SummaryMedium,
+		KeyPoints:     result.KeyPoints,
+		AIModel:       s.model,
+		AIConfidence:  result.Confidence,
+		GeneratedAt:   now,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.repo.CreateSummary(ctx, summary); err != nil {
+		return nil, fmt.Errorf("failed to save summary: %w", err)
+	}
+	return summary, nil
+}
+
+func (s *summaryService) GenerateBatch(ctx context.Context, limit int) (*BatchResult, error) {
+	start := time.Now()
+	if limit <= 0 {
+		limit = defaultBatchLimit
+	}
+	if limit > maxBatchLimit {
+		limit = maxBatchLimit
+	}
+
+	lockAcquired, err := s.acquireLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if lockAcquired {
+		defer s.releaseLock(ctx)
+	}
+
+	clusterIDs, err := s.repo.ListPendingClusters(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pending clusters: %w", err)
+	}
+
+	result := &BatchResult{TotalClusters: len(clusterIDs)}
+	for _, clusterID := range clusterIDs {
+		if _, err := s.GenerateClusterSummary(ctx, clusterID); err != nil {
+			result.Failed++
+			continue
+		}
+		result.Processed++
+	}
+	result.DurationMS = time.Since(start).Milliseconds()
+	if result.TotalClusters > 0 {
+		result.SuccessRate = (float64(result.Processed) / float64(result.TotalClusters)) * 100
+	}
+	return result, nil
+}
+
+func (s *summaryService) GetStats(ctx context.Context) (*Stats, error) {
+	stats, err := s.repo.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Stats{
+		TotalSummaries:  stats.TotalSummaries,
+		PendingClusters: stats.PendingClusters,
+	}, nil
+}
+
+func (s *summaryService) ListSummaries(ctx context.Context, page int, limit int) ([]entity.Summary, int64, error) {
+	return s.repo.ListSummaries(ctx, page, limit)
+}
+
+func (s *summaryService) GetSummaryByID(ctx context.Context, id string) (*entity.Summary, error) {
+	return s.repo.GetSummaryByID(ctx, id)
+}
+
+func (s *summaryService) GetSummaryByClusterID(ctx context.Context, clusterID string) (*entity.Summary, error) {
+	return s.repo.GetSummaryByClusterID(ctx, clusterID)
+}
+
+func (s *summaryService) acquireLock(ctx context.Context) (bool, error) {
+	if isNilRedis(s.rdb) {
+		s.warn("redis client is nil, running summary worker without distributed lock")
+		return false, nil
+	}
+	acquired, err := s.rdb.SetNX(ctx, summaryLockKey, "running", summaryLockTTL).Result()
+	if err != nil {
+		s.warn("failed to acquire redis lock, continuing without lock", zap.Error(err))
+		return false, nil
+	}
+	if !acquired {
+		return false, ErrWorkerAlreadyRunning
+	}
+	return true, nil
+}
+
+func (s *summaryService) releaseLock(ctx context.Context) {
+	if isNilRedis(s.rdb) {
+		return
+	}
+	if _, err := s.rdb.Del(ctx, summaryLockKey).Result(); err != nil {
+		s.warn("failed to release summary worker lock", zap.Error(err))
+	}
+}
+
+func (s *summaryService) warn(msg string, fields ...zap.Field) {
+	if s.logger != nil {
+		s.logger.Warn(msg, fields...)
+	}
+}
+
+func isNilRedis(rdb redis.Cmdable) bool {
+	if rdb == nil {
+		return true
+	}
+	value := reflect.ValueOf(rdb)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func mergeArticleContent(articles []articleEntity.Article) string {
+	var b strings.Builder
+	for i, article := range articles {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("Title: ")
+		b.WriteString(article.Title)
+		b.WriteString("\nContent:\n")
+		b.WriteString(article.Content)
+	}
+	return strings.TrimSpace(b.String())
+}
